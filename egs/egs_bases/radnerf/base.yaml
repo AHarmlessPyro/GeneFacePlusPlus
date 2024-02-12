@@ -62,9 +62,9 @@ update_extra_interval: 16 # iter interval to update extra status (only valid whe
 max_ray_batch: 4096 # batch size of rays at inference to avoid OOM (only valid when NOT using --cuda_ray)
 
 
-max_updates: 25_0000 # 40_0000 for training the whole head, 5_0000 for finetuning the mouth
+max_updates: 10_0000 # 40_0000 for training the whole head, 5_0000 for finetuning the mouth
 finetune_lips: true
-finetune_lips_start_iter: 20_0000
+finetune_lips_start_iter: 8_0000
 lambda_lpips_loss: 0.01 # auxiliary loss for finetune lips
 lambda_weights_entropy: 0.0001
 lambda_ambient: 0.1

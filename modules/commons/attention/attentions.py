@@ -105,7 +105,7 @@ class LocationAwareAttention(nn.Module):
         - **Attention-Based Models for Speech Recognition**: https://arxiv.org/abs/1506.07503
         - **ClovaCall**: https://github.com/clovaai/ClovaCall/blob/master/las.pytorch/models/attention.py
     """
-    def __init__(self, hidden_dim: int, smoothing: bool = True) -> None:
+    def __init__(self, hidden_dim: int, smoothing: bool = False) -> None:
         super(LocationAwareAttention, self).__init__()
         self.hidden_dim = hidden_dim
         self.conv1d = nn.Conv1d(in_channels=1, out_channels=hidden_dim, kernel_size=3, padding=1)

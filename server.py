@@ -17,14 +17,7 @@ s3 = boto3.client(
 S3_BUCKET = os.environ["S3_BUCKET"]
 
 
-
-UPLOAD_FOLDER = "/path/to/the/uploads"
-ALLOWED_EXTENSIONS = {"txt", "pdf", "png", "jpg", "jpeg", "gif"}
-
-
 app = Flask(__name__)
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 
 @app.route("/ok")

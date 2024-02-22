@@ -4,32 +4,24 @@ load_dotenv()
 
 import multiprocessing
 import os
+import shutil
 import subprocess
+import tarfile
 import time
 import typing
 import uuid
+from pathlib import Path
 
 import boto3
-from flask import Flask, jsonify, request, send_file
-from marshmallow import Schema, ValidationError, fields
-from werkzeug.utils import secure_filename
-
-from inference.genefacepp_infer import GeneFace2Infer
-from tasks.run import run_task
+import runpod
+from marshmallow import Schema, fields, EXCLUDE
 
 s3 = boto3.client(
     "s3",
 )
 
 S3_BUCKET = os.environ["S3_BUCKET"]
-
-
-app = Flask(__name__)
-
-
-@app.route("/status")
-def status():
-    return "OK"
+DEBUG = bool(os.environ.get("RUN_DEBUG", False))
 
 
 def hparams_from_name(name: str):
@@ -161,78 +153,117 @@ def hparams_from_name(name: str):
 
 TrainSchema = Schema.from_dict(
     {
+        "id": fields.UUID(required=True),
         "name": fields.String(required=True),
-        "video_url": fields.URL(required=True),
-        "use_torso": fields.Boolean(dump_default=False),
+        "video_path": fields.Str(required=True),
+        "use_torso": fields.Boolean(load_default=False),
     }
 )
 
 
 def run_training(name: str):
+    from tasks.run import run_task
+
+    base_env = os.environ.copy()
+    base_env["VIDEO_ID"] = name
+    subprocess.run(
+        args=f"bash --login ./data_gen/runs/nerf/run.sh {name}",
+        env=base_env,
+        check=True,
+        shell=True,
+    )
+
     global hparams
     hparams = hparams_from_name(name)
     run_task()
 
 
-@app.route("/train", methods=["POST"])
-def start_training():
-    request_data = request.get_json()
-    schema = TrainSchema()
-    try:
-        result = schema.load(request_data)
-        name = result["name"]
-        video_file_name = f"data/raw/videos/{name}.mp4"
-        with open(video_file_name, "wb") as f:
-            s3.download_fileobj(S3_BUCKET, result["video_url"], f)
-        subprocess.run(
-            args=f"cp -r ./egs/datasets/May ./egs/datasets/{name}",
-            check=True,
-            shell=True,
-        )
-        subprocess.run(
-            args=f'for filename in "egs/datasets/{name}/*"; do sed -i \'\' -e "s/May/{name}/Ig" $filename; done',
-            check=True,
-            shell=True,
-        )
-        subprocess.run(
-            args=f"bash ./data_gen/runs/nerf/run.sh {name}",
-            env={"VIDEO_ID": name},
-            check=True,
-            shell=True,
-        )
+def start_training(request_data: typing.Dict):
+    schema = TrainSchema(unknown=EXCLUDE)
+    result = schema.load(
+        request_data,
+    )
 
-        proc = multiprocessing.Process(target=run_task)
+    name = result["name"]
+    instance_uuid = result["id"]
+    video_path = result["video_path"]
+    video_file_name = f"data/raw/videos/{name}.mp4"
+    with open(video_file_name, "wb") as f:
+        s3.download_fileobj(S3_BUCKET, video_path, f)
+
+    if not DEBUG:
+        proc = multiprocessing.Process(target=run_training, args=[name])
+        proc.start()
         proc.join()
-        return jsonify()
-    except ValidationError as err:
-        # Return a nice message if validation fails
-        return jsonify(err.messages), 400
-    except Exception as err:
-        return jsonify(err), 400
+
+    archive_name = f"{name}.tar"
+    base_path = os.getcwd()
+    tar_location = Path(os.path.join(base_path, archive_name))
+
+    upload_loc = f"./training/{instance_uuid}/result.mp4"
+    a = tarfile.open(tar_location, "a:")
+    a.add(f"./data/binary/videos/{name}/trainval_dataset.npy")
+    a.add(f"./data/processed/videos/{name}/")
+    a.add(f"./checkpoints/motion2video_nerf/{name}_head")
+    if os.path.exists(f"./checkpoints/motion2video_nerf/{name}_torso"):
+        a.add(f"./checkpoints/motion2video_nerf/{name}_torso")
+    shutil.make_archive(archive_name, "tar", base_path, base_path)
+    s3.upload_file(tar_location, S3_BUCKET, upload_loc)
+    return {
+        "refresh_worker": False,
+        "job_results": {"url": upload_loc, "completed_at": time.time()},
+    }
+
+
+InferSchema = Schema.from_dict(
+    {
+        "id": fields.UUID(required=True),
+        "name": fields.String(required=True),
+        "audio_path": fields.Str(required=True),
+        "data_path": fields.Str(required=True),
+        "use_torso": fields.Boolean(load_default=False),
+    }
+)
 
 
 def run_inference(params: typing.Dict, name: str, upload_loc: str, output_name: str):
+    from inference.genefacepp_infer import GeneFace2Infer
+
     global hparams
     hparams = hparams_from_name(name)
     GeneFace2Infer.example_run(params)
     s3.upload_file(output_name, S3_BUCKET, upload_loc)
 
 
-@app.route("/inference/", methods=["POST"])
-def start_inference():
-    request_data = request.get_json()
-    name = request_data["model_name"]
-    audio_loc = request_data["audio_loc"]
-    instance_uuid = uuid.uuid4()
+def start_inference(request_data: typing.Dict):
+    schema = InferSchema(unknown=EXCLUDE)
+    result = schema.load(request_data)
+
+    name = result["model_name"]
+    audio_loc = result["audio_path"]
+    data_loc = result["data_path"]
+    instance_uuid = result["id"]
+
     dir_base = f"./data/{instance_uuid}"
     inference_base = f"{dir_base}/inference"
-    os.mkdir(dir_base)
-    os.mkdir(inference_base)
     output_name = f"{inference_base}/{name}_result.mp4"
     audio_file_name = f"{dir_base}/audio.mp4"
     upload_loc = f"./inference/{instance_uuid}/result.mp4"
+
+    os.mkdir(dir_base)
+    os.mkdir(inference_base)
+
     with open(audio_file_name, "wb") as f:
         s3.download_fileobj(S3_BUCKET, audio_loc, f)
+
+    tarfile_loc = "data.tar"
+
+    with open(tarfile_loc, "wb") as f:
+        s3.download_fileobj(S3_BUCKET, data_loc, f)
+
+    file = tarfile.open(tarfile_loc)
+    file.extractall(os.getcwd())
+
     params = {
         "a2m_ckpt": "checkpoints/audio2motion_vae",
         "postnet_ckpt": "",
@@ -249,6 +280,7 @@ def start_inference():
         "raymarching_end_threshold": 0.01,
         "low_memory_usage": False,
     }
+
     proc = multiprocessing.Process(
         target=run_inference,
         kwargs={
@@ -258,5 +290,27 @@ def start_inference():
             "output_name": output_name,
         },
     )
+    proc.start()
     proc.join()
-    return jsonify({"url": upload_loc, "completed_at": time.time()})
+
+    return {
+        "refresh_worker": True,
+        "job_results": {"url": upload_loc, "completed_at": time.time()},
+    }
+
+
+def process(job):
+    input = job.get("input", {})
+    task_type = input.get("task_type", None)
+    if task_type is None:
+        raise Exception("No task type found")
+    elif task_type == "train":
+        return start_training(input)
+    elif task_type == "infer":
+        return start_inference(input)
+    else:
+        Exception(f"No task of type {task_type} found")
+
+
+if __name__ == "__main__":
+    runpod.serverless.start({"handler": process})

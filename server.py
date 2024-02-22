@@ -9,12 +9,12 @@ import subprocess
 import tarfile
 import time
 import typing
-import uuid
 from pathlib import Path
 
 import boto3
 import runpod
 from marshmallow import Schema, fields, EXCLUDE
+from utils.commons.hparams import force_set_hparams
 
 s3 = boto3.client(
     "s3",
@@ -161,21 +161,20 @@ TrainSchema = Schema.from_dict(
 )
 
 
-def run_training(name: str):
+def run_training(name: str,train_torso:bool=False):
     from tasks.run import run_task
 
     base_env = os.environ.copy()
     base_env["VIDEO_ID"] = name
-    subprocess.run(
-        args=f"bash --login ./data_gen/runs/nerf/run.sh {name}",
-        env=base_env,
-        check=True,
-        shell=True,
-    )
+    # subprocess.run(
+    #     args=f"bash --login ./data_gen/runs/nerf/run.sh {name}",
+    #     env=base_env,
+    #     check=True,
+    #     shell=True,
+    # )
 
-    global hparams
-    hparams = hparams_from_name(name)
-    run_task()
+    force_set_hparams(hparams_from_name(name))
+    # run_task()
 
 
 def start_training(request_data: typing.Dict):
@@ -200,14 +199,13 @@ def start_training(request_data: typing.Dict):
     base_path = os.getcwd()
     tar_location = Path(os.path.join(base_path, archive_name))
 
-    upload_loc = f"./training/{instance_uuid}/result.mp4"
-    a = tarfile.open(tar_location, "a:")
+    upload_loc = f"training/{instance_uuid}/data.tar"
+    a = tarfile.open(str(tar_location), "w:")
     a.add(f"./data/binary/videos/{name}/trainval_dataset.npy")
     a.add(f"./data/processed/videos/{name}/")
     a.add(f"./checkpoints/motion2video_nerf/{name}_head")
     if os.path.exists(f"./checkpoints/motion2video_nerf/{name}_torso"):
-        a.add(f"./checkpoints/motion2video_nerf/{name}_torso")
-    shutil.make_archive(archive_name, "tar", base_path, base_path)
+        a.add(f"./checkpoints/motion2video_nerf/{name}_torso")    
     s3.upload_file(tar_location, S3_BUCKET, upload_loc)
     return {
         "refresh_worker": False,

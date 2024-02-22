@@ -190,5 +190,9 @@ def set_hparams(config='', exp_name='', hparams_str='', print_hparams=True, glob
         global_print_hparams = False
     return hparams_
 
+def force_set_hparams(params):
+    global hparams
+    hparams.update(params)
+
 if __name__ == '__main__':
     set_hparams('checkpoints/1205_os_secc2planes/os_secc2plane_trigridv2/config.yaml')

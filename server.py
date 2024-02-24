@@ -4,6 +4,7 @@ load_dotenv()
 
 import multiprocessing
 import os
+import shutil
 import subprocess
 import tarfile
 import time
@@ -12,8 +13,9 @@ from pathlib import Path
 
 import boto3
 import runpod
-from marshmallow import Schema, fields, EXCLUDE
-from utils.commons.hparams import force_set_hparams
+import yaml
+from marshmallow import EXCLUDE, Schema, fields
+from utils.commons.hparams import set_hparams
 
 s3 = boto3.client(
     "s3",
@@ -22,144 +24,11 @@ s3 = boto3.client(
 S3_BUCKET = os.environ["S3_BUCKET"]
 DEBUG = bool(os.environ.get("RUN_DEBUG", False))
 
-os.environ["PYTHONPATH"] = "./"
+BASE_DIR = os.getcwd()
+
+os.environ["PYTHONPATH"] = os.environ.get("PYTHONPATH", "./")
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.makedirs("data/raw/videos", exist_ok=True)
-
-
-def hparams_from_name(name: str, **kwargs):
-    hparams_base = {
-        "accumulate_grad_batches": kwargs.get("accumulate_grad_batches", 1),
-        "add_eye_blink_cond": kwargs.get("add_eye_blink_cond", True),
-        "ambient_coord_dim": kwargs.get("ambient_coord_dim", 3),
-        "ambient_loss_mode": kwargs.get("ambient_loss_mode", "mae"),
-        "amp": kwargs.get("amp", True),
-        "base_config": kwargs.get("base_config", ["./lm3d_radnerf.yaml"]),
-        "binary_data_dir": kwargs.get("binary_data_dir", "data/binary/videos"),
-        "bound": kwargs.get("bound", 1),
-        "camera_offset": kwargs.get("camera_offset", [0, 0, 0]),
-        "camera_scale": kwargs.get("camera_scale", 4.0),
-        "clip_grad_norm": kwargs.get("clip_grad_norm", 0.0),
-        "clip_grad_value": kwargs.get("clip_grad_value", 0),
-        "cond_dropout_rate": kwargs.get("cond_dropout_rate", 0.0),
-        "cond_out_dim": kwargs.get("cond_out_dim", 64),
-        "cond_type": kwargs.get("cond_type", "idexp_lm3d_normalized"),
-        "cond_win_size": kwargs.get("cond_win_size", 1),
-        "cuda_ray": kwargs.get("cuda_ray", True),
-        "debug": kwargs.get("debug", False),
-        "density_thresh": kwargs.get("density_thresh", 10),
-        "density_thresh_torso": kwargs.get("density_thresh_torso", 0.01),
-        "desired_resolution": kwargs.get("desired_resolution", 2048),
-        "dt_gamma": kwargs.get("dt_gamma", 0.00390625),
-        "eval_max_batches": kwargs.get("eval_max_batches", 100),
-        "exp_name": kwargs.get("exp_name", f"motion2video_nerf/{name}_head"),
-        "eye_blink_dim": kwargs.get("eye_blink_dim", 8),
-        "far": kwargs.get("far", 0.9),
-        "finetune_lips": kwargs.get("finetune_lips", True),
-        "finetune_lips_start_iter": kwargs.get("finetune_lips_start_iter", 80000),
-        "geo_feat_dim": kwargs.get("geo_feat_dim", 128),
-        "grid_interpolation_type": kwargs.get("grid_interpolation_type", "linear"),
-        "grid_size": kwargs.get("grid_size", 128),
-        "grid_type": kwargs.get("grid_type", "tiledgrid"),
-        "gui_fovy": kwargs.get("gui_fovy", 21.24),
-        "gui_h": kwargs.get("gui_h", 512),
-        "gui_max_spp": kwargs.get("gui_max_spp", 1),
-        "gui_radius": kwargs.get("gui_radius", 3.35),
-        "gui_w": kwargs.get("gui_w", 512),
-        "hidden_dim_ambient": kwargs.get("hidden_dim_ambient", 128),
-        "hidden_dim_color": kwargs.get("hidden_dim_color", 128),
-        "hidden_dim_sigma": kwargs.get("hidden_dim_sigma", 128),
-        "individual_embedding_dim": kwargs.get("individual_embedding_dim", 4),
-        "individual_embedding_num": kwargs.get("individual_embedding_num", 13000),
-        "infer": kwargs.get("infer", False),
-        "infer_audio_source_name": kwargs.get("infer_audio_source_name", ""),
-        "infer_bg_img_fname": kwargs.get("infer_bg_img_fname", ""),
-        "infer_c2w_name": kwargs.get("infer_c2w_name", ""),
-        "infer_cond_name": kwargs.get("infer_cond_name", ""),
-        "infer_lm3d_clamp_std": kwargs.get("infer_lm3d_clamp_std", 1.5),
-        "infer_lm3d_lle_percent": kwargs.get("infer_lm3d_lle_percent", 0.25),
-        "infer_lm3d_smooth_sigma": kwargs.get("infer_lm3d_smooth_sigma", 0.0),
-        "infer_out_video_name": kwargs.get("infer_out_video_name", ""),
-        "infer_scale_factor": kwargs.get("infer_scale_factor", 1.0),
-        "infer_smo_std": kwargs.get("infer_smo_std", 0.0),
-        "infer_smooth_camera_path": kwargs.get("infer_smooth_camera_path", True),
-        "infer_smooth_camera_path_kernel_size": kwargs.get(
-            "infer_smooth_camera_path_kernel_size", 7
-        ),
-        "init_method": kwargs.get("init_method", "tcp"),
-        "lambda_ambient": kwargs.get("lambda_ambient", None),
-        "lambda_dual_fm": kwargs.get("lambda_dual_fm", 0.0),
-        "lambda_lap_ambient_loss": kwargs.get("lambda_lap_ambient_loss", 0.0),
-        "lambda_lpips_loss": kwargs.get("lambda_lpips_loss", 0.001),
-        "lambda_weights_entropy": kwargs.get("lambda_weights_entropy", 0.0001),
-        "load_ckpt": kwargs.get("load_ckpt", ""),
-        "load_imgs_to_memory": kwargs.get("load_imgs_to_memory", False),
-        "log2_hashmap_size": kwargs.get("log2_hashmap_size", 16),
-        "lpips_mode": kwargs.get("lpips_mode", "vgg19_v2"),
-        "lpips_start_iters": kwargs.get("lpips_start_iters", 80000),
-        "lr": kwargs.get("lr", 0.0005),
-        "lr_lambda_ambient": kwargs.get("lr_lambda_ambient", 0.01),
-        "max_ray_batch": kwargs.get("max_ray_batch", 4096),
-        "max_steps": kwargs.get("max_steps", 16),
-        "max_updates": kwargs.get("max_updates", 120000),
-        "min_near": kwargs.get("min_near", 0.05),
-        "n_rays": kwargs.get("n_rays", 65536),
-        "near": kwargs.get("near", 0.3),
-        "nerf_keypoint_mode": kwargs.get("nerf_keypoint_mode", "lm68"),
-        "not_save_modules": kwargs.get(
-            "not_save_modules", ["criterion_lpips", "dual_disc"]
-        ),
-        "num_ckpt_keep": kwargs.get("num_ckpt_keep", 1),
-        "num_layers_ambient": kwargs.get("num_layers_ambient", 3),
-        "num_layers_color": kwargs.get("num_layers_color", 2),
-        "num_layers_sigma": kwargs.get("num_layers_sigma", 3),
-        "num_sanity_val_steps": kwargs.get("num_sanity_val_steps", 2),
-        "num_steps": kwargs.get("num_steps", 16),
-        "num_valid_plots": kwargs.get("num_valid_plots", 5),
-        "optimizer_adam_beta1": kwargs.get("optimizer_adam_beta1", 0.9),
-        "optimizer_adam_beta2": kwargs.get("optimizer_adam_beta2", 0.999),
-        "polygon_face_mask": kwargs.get("polygon_face_mask", True),
-        "print_nan_grads": kwargs.get("print_nan_grads", False),
-        "processed_data_dir": kwargs.get("processed_data_dir", "data/processed/videos"),
-        "raw_data_dir": kwargs.get("raw_data_dir", "data/raw/videos"),
-        "resume_from_checkpoint": kwargs.get("resume_from_checkpoint", 0),
-        "save_best": kwargs.get("save_best", True),
-        "save_codes": kwargs.get("save_codes", ["tasks", "modules", "egs"]),
-        "save_gt": kwargs.get("save_gt", True),
-        "scheduler": kwargs.get("scheduler", "exponential"),
-        "seed": kwargs.get("seed", 9999),
-        "smo_win_size": kwargs.get("smo_win_size", 3),
-        "smooth_lips": kwargs.get("smooth_lips", False),
-        "sr_start_iters": kwargs.get("sr_start_iters", 0),
-        "start_rank": kwargs.get("start_rank", 0),
-        "target_ambient_loss": kwargs.get("target_ambient_loss", 1e-08),
-        "task_cls": kwargs.get("task_cls", "tasks.radnerfs.radnerf_sr.RADNeRFTask"),
-        "tb_log_interval": kwargs.get("tb_log_interval", 100),
-        "torso_head_aware": kwargs.get("torso_head_aware", False),
-        "torso_individual_embedding_dim": kwargs.get(
-            "torso_individual_embedding_dim", 8
-        ),
-        "torso_shrink": kwargs.get("torso_shrink", 0.8),
-        "update_extra_interval": kwargs.get("update_extra_interval", 16),
-        "upsample_steps": kwargs.get("upsample_steps", 0),
-        "use_window_cond": kwargs.get("use_window_cond", True),
-        "val_check_interval": kwargs.get("val_check_interval", 2000),
-        "valid_infer_interval": kwargs.get("valid_infer_interval", 10000),
-        "valid_monitor_key": kwargs.get("valid_monitor_key", "val_loss"),
-        "valid_monitor_mode": kwargs.get("valid_monitor_mode", "min"),
-        "validate": kwargs.get("validate", False),
-        "video_id": kwargs.get("video_id", name),
-        "warmup_updates": kwargs.get("warmup_updates", 0),
-        "weight_decay": kwargs.get("weight_decay", 0),
-        "with_att": kwargs.get("with_att", True),
-        "with_sr": kwargs.get("with_sr", True),
-        "work_dir": kwargs.get(
-            "work_dir", f"checkpoints/motion2video_nerf/{name}_head"
-        ),
-        "world_size": kwargs.get("world_size", -1),
-        "zero_dummy": kwargs.get("zero_dummy", True),
-    }
-    return hparams_base
 
 
 TrainSchema = Schema.from_dict(
@@ -173,20 +42,23 @@ TrainSchema = Schema.from_dict(
 )
 
 
-
 def run_training(name: str, train_torso: bool = False, **params):
     from tasks.run import run_task
+
     base_env = os.environ.copy()
     base_env["VIDEO_ID"] = name
-    # subprocess.run(
-    #     args=f"bash --login ./data_gen/runs/nerf/run.sh {name}",
-    #     env=base_env,
-    #     check=True,
-    #     shell=True,
-    # )
+    subprocess.run(
+        args=f"bash --login ./data_gen/runs/nerf/run.sh {name}",
+        env=base_env,
+        check=True,
+        shell=True,
+    )
 
-    force_set_hparams(hparams_from_name(name, **params))
+    set_hparams()
     run_task()
+    if train_torso:
+        set_hparams()
+        run_task()
 
 
 def start_training(request_data: typing.Dict):
@@ -198,18 +70,23 @@ def start_training(request_data: typing.Dict):
     name = result["name"]
     instance_uuid = result["id"]
     video_path = result["video_path"]
-    params = result["train_params"]
+    train_params = result["train_params"]
     video_file_name = f"data/raw/videos/{name}.mp4"
+
+    cp_configs(name, train_params, train_params)
+
     with open(video_file_name, "wb") as f:
         s3.download_fileobj(S3_BUCKET, video_path, f)
 
     if not DEBUG:
-        proc = multiprocessing.Process(target=run_training, args=[name], kwargs=params)
+        proc = multiprocessing.Process(
+            target=run_training, args=[name], kwargs=train_params
+        )
         proc.start()
         proc.join()
 
     archive_name = f"{name}.tar"
-    base_path = os.getcwd()
+    base_path = BASE_DIR
     tar_location = Path(os.path.join(base_path, archive_name))
 
     upload_loc = f"training/{instance_uuid}/data.tar"
@@ -234,7 +111,9 @@ InferSchema = Schema.from_dict(
         "audio_path": fields.Str(required=True),
         "data_path": fields.Str(required=True),
         "use_torso": fields.Boolean(load_default=False),
-        "train_params": fields.Dict(keys=fields.Str(), values=fields.Raw()),
+        "train_params": fields.Dict(
+            keys=fields.Str(), values=fields.Raw(), load_default={}
+        ),
     }
 )
 
@@ -244,8 +123,6 @@ def run_inference(
 ):
     from inference.genefacepp_infer import GeneFace2Infer
 
-    global hparams
-    hparams = hparams_from_name(name, **train_params)
     GeneFace2Infer.example_run(params)
     s3.upload_file(output_name, S3_BUCKET, upload_loc)
 
@@ -258,13 +135,16 @@ def start_inference(request_data: typing.Dict):
     name = result["name"]
     audio_loc = result["audio_path"]
     data_loc = result["data_path"]
-    train_params = result["train_params"]
+    use_torso = result["use_torso"]
+    train_params: typing.Dict = result["train_params"]
 
     dir_base = f"./data/{instance_uuid}"
     inference_base = f"{dir_base}/inference"
     output_name = f"{inference_base}/{name}_result.mp4"
     audio_file_name = f"{dir_base}/audio.mp4"
     upload_loc = f"inference/{instance_uuid}/result.mp4"
+
+    cp_configs(name, train_params, train_params)
 
     os.makedirs(dir_base, exist_ok=True)
     os.makedirs(inference_base, exist_ok=True)
@@ -278,23 +158,30 @@ def start_inference(request_data: typing.Dict):
         s3.download_fileobj(S3_BUCKET, data_loc, f)
 
     file = tarfile.open(tarfile_loc)
-    file.extractall(os.getcwd())
+    file.extractall(BASE_DIR)
 
     params = {
-        "a2m_ckpt": "checkpoints/audio2motion_vae",
-        "postnet_ckpt": "",
-        "head_ckpt": f"./checkpoints/motion2video_nerf/{name}_head",
-        "torso_ckpt": f"./checkpoints/motion2video_nerf/{name}_torso",
-        "drv_audio_name": audio_file_name,
-        "drv_pose": "nearest",
-        "blink_mode": "period",
-        "temperature": 0.2,
-        "mouth_amp": 0.4,
-        "lle_percent": 0.2,
-        "debug": False,
-        "out_name": output_name,
-        "raymarching_end_threshold": 0.01,
-        "low_memory_usage": False,
+        "a2m_ckpt": train_params.get("a2m_ckpt", "checkpoints/audio2motion_vae"),
+        "postnet_ckpt": train_params.get("postnet_ckpt", ""),
+        "head_ckpt": train_params.get(
+            "head_ckpt", f"./checkpoints/motion2video_nerf/{name}_head"
+        ),
+        "torso_ckpt": train_params.get(
+            "torso_ckpt",
+            f"./checkpoints/motion2video_nerf/{name}_torso" if use_torso else "",
+        ),
+        "drv_audio_name": train_params.get("drv_audio_name", audio_file_name),
+        "drv_pose": train_params.get("drv_pose", "nearest"),
+        "blink_mode": train_params.get("blink_mode", "period"),
+        "temperature": train_params.get("temperature", 0.2),
+        "mouth_amp": train_params.get("mouth_amp", 0.4),
+        "lle_percent": train_params.get("lle_percent", 0.2),
+        "debug": train_params.get("debug", False),
+        "out_name": train_params.get("out_name", output_name),
+        "raymarching_end_threshold": train_params.get(
+            "raymarching_end_threshold", 0.01
+        ),
+        "low_memory_usage": train_params.get("low_memory_usage", False),
     }
 
     proc = multiprocessing.Process(
@@ -327,6 +214,51 @@ def process(job):
         return start_inference(input)
     else:
         Exception(f"No task of type {task_type} found")
+
+
+def cp_configs(name: str, head_kwargs: typing.Dict, torso_kwargs: typing.Dict):
+    def get_new_path(file_path):
+        *base_path, file = file_path.split(os.path.sep)
+        new_base_path = os.path.join(*base_path).replace("May", name)
+        return new_base_path, os.path.join(new_base_path, file)
+
+    def copy_file(file_path: str):
+        new_base_path, new_file_name = get_new_path(file_path)
+        os.makedirs(new_base_path, exist_ok=True)
+        shutil.copyfile(file_path, new_file_name)
+
+    def update_yml(file: str, kwargs: typing.Dict):
+        _, new_file_name = get_new_path(file)
+        with open(file) as f_read:
+            with open(new_file_name, "w+") as f_write:
+                text = f_read.read()
+                new_text = text.replace("May", name)
+                yml_text = yaml.load(new_text, Loader=yaml.Loader)
+                updated_yml = yml_text.update(**kwargs)
+                f_write.write(yaml.dump(updated_yml, Dumper=yaml.Dumper))
+
+    def copy_yml(file: str):
+        _, new_file_name = get_new_path(file)
+        with open(file) as f_read:
+            with open(new_file_name, "w+") as f_write:
+                text = f_read.read()
+                f_write.write(text.replace("May", name))
+
+    def copy_head(head_kwargs: typing.Dict):
+        copy_yml("./egs/datasets/May/lm3d_radnerf.yaml")
+        update_yml(
+            "./egs/datasets/May/lm3d_radnerf_sr.yaml", head_kwargs
+        )
+
+    def copy_torso(torso_kwargs: typing.Dict):
+        copy_file("./egs/datasets/May/lm3d_radnerf_torso.yaml")
+        update_yml(
+            "./egs/datasets/May/lm3d_radnerf_torso_sr.yaml",
+            torso_kwargs,
+        )
+
+    copy_head(head_kwargs)
+    copy_torso(torso_kwargs)
 
 
 if __name__ == "__main__":

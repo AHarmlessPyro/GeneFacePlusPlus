@@ -4,7 +4,6 @@ load_dotenv()
 
 import multiprocessing
 import os
-import shutil
 import subprocess
 import tarfile
 import time
@@ -47,6 +46,7 @@ def run_training(name: str, train_torso: bool = False, **params):
 
     base_env = os.environ.copy()
     base_env["VIDEO_ID"] = name
+
     subprocess.run(
         args=f"bash --login ./data_gen/runs/nerf/run.sh {name}",
         env=base_env,
@@ -54,10 +54,17 @@ def run_training(name: str, train_torso: bool = False, **params):
         shell=True,
     )
 
-    set_hparams()
+    set_hparams(
+        config=f"./egs/datasets/{name}/lm3d_radnerf_sr.yaml",
+        exp_name=f"motion2video_nerf/{name}_head",
+    )
     run_task()
     if train_torso:
-        set_hparams()
+        set_hparams(
+            config=f"./egs/datasets/{name}/lm3d_radnerf_torso_sr.yaml",
+            exp_name=f"motion2video_nerf/{name}_torso",
+            hparams_str=f"head_model_dir=checkpoints/motion2video_nerf/{name}_head",
+        )
         run_task()
 
 
@@ -71,7 +78,12 @@ def start_training(request_data: typing.Dict):
     instance_uuid = result["id"]
     video_path = result["video_path"]
     train_params = result["train_params"]
+    train_torso = result["use_torso"]
     video_file_name = f"data/raw/videos/{name}.mp4"
+
+    os.makedirs(f"./checkpoints/motion2video_nerf/{name}_head", exist_ok=True)
+    if train_torso:
+        os.makedirs(f"./checkpoints/motion2video_nerf/{name}_torso", exist_ok=True)
 
     cp_configs(name, train_params, train_params)
 
@@ -80,7 +92,7 @@ def start_training(request_data: typing.Dict):
 
     if not DEBUG:
         proc = multiprocessing.Process(
-            target=run_training, args=[name], kwargs=train_params
+            target=run_training, args=[name, train_torso], kwargs=train_params
         )
         proc.start()
         proc.join()
@@ -90,13 +102,13 @@ def start_training(request_data: typing.Dict):
     tar_location = Path(os.path.join(base_path, archive_name))
 
     upload_loc = f"training/{instance_uuid}/data.tar"
-    a = tarfile.open(str(tar_location), "w:")
-    a.add(f"./data/binary/videos/{name}/trainval_dataset.npy")
-    a.add(f"./data/processed/videos/{name}/")
-    a.add(f"./checkpoints/motion2video_nerf/{name}_head")
-    if os.path.exists(f"./checkpoints/motion2video_nerf/{name}_torso"):
-        a.add(f"./checkpoints/motion2video_nerf/{name}_torso")
-    a.close()
+    tar_archive = tarfile.open(str(tar_location), "w:")
+    tar_archive.add(f"./data/binary/videos/{name}/trainval_dataset.npy")
+    tar_archive.add(f"./data/processed/videos/{name}/")
+    tar_archive.add(f"./checkpoints/motion2video_nerf/{name}_head")
+    if train_torso:
+        tar_archive.add(f"./checkpoints/motion2video_nerf/{name}_torso")
+    tar_archive.close()
     s3.upload_file(tar_location, S3_BUCKET, upload_loc)
     return {
         "refresh_worker": False,
@@ -145,6 +157,9 @@ def start_inference(request_data: typing.Dict):
     upload_loc = f"inference/{instance_uuid}/result.mp4"
 
     cp_configs(name, train_params, train_params)
+
+    os.makedirs(f"./checkpoints/motion2video_nerf/{name}_head", exist_ok=True)
+    os.makedirs(f"./checkpoints/motion2video_nerf/{name}_torso", exist_ok=True)
 
     os.makedirs(dir_base, exist_ok=True)
     os.makedirs(inference_base, exist_ok=True)
@@ -222,11 +237,6 @@ def cp_configs(name: str, head_kwargs: typing.Dict, torso_kwargs: typing.Dict):
         new_base_path = os.path.join(*base_path).replace("May", name)
         return new_base_path, os.path.join(new_base_path, file)
 
-    def copy_file(file_path: str):
-        new_base_path, new_file_name = get_new_path(file_path)
-        os.makedirs(new_base_path, exist_ok=True)
-        shutil.copyfile(file_path, new_file_name)
-
     def update_yml(file: str, kwargs: typing.Dict):
         _, new_file_name = get_new_path(file)
         with open(file) as f_read:
@@ -234,11 +244,13 @@ def cp_configs(name: str, head_kwargs: typing.Dict, torso_kwargs: typing.Dict):
                 text = f_read.read()
                 new_text = text.replace("May", name)
                 yml_text = yaml.load(new_text, Loader=yaml.Loader)
-                updated_yml = yml_text.update(**kwargs)
-                f_write.write(yaml.dump(updated_yml, Dumper=yaml.Dumper))
+                yml_text.update(**kwargs)
+                stringified = yaml.dump(yml_text, Dumper=yaml.Dumper)
+                f_write.write(stringified)
 
     def copy_yml(file: str):
-        _, new_file_name = get_new_path(file)
+        new_base_path, new_file_name = get_new_path(file)
+        os.makedirs(new_base_path, exist_ok=True)
         with open(file) as f_read:
             with open(new_file_name, "w+") as f_write:
                 text = f_read.read()
@@ -246,12 +258,10 @@ def cp_configs(name: str, head_kwargs: typing.Dict, torso_kwargs: typing.Dict):
 
     def copy_head(head_kwargs: typing.Dict):
         copy_yml("./egs/datasets/May/lm3d_radnerf.yaml")
-        update_yml(
-            "./egs/datasets/May/lm3d_radnerf_sr.yaml", head_kwargs
-        )
+        update_yml("./egs/datasets/May/lm3d_radnerf_sr.yaml", head_kwargs)
 
     def copy_torso(torso_kwargs: typing.Dict):
-        copy_file("./egs/datasets/May/lm3d_radnerf_torso.yaml")
+        copy_yml("./egs/datasets/May/lm3d_radnerf_torso.yaml")
         update_yml(
             "./egs/datasets/May/lm3d_radnerf_torso_sr.yaml",
             torso_kwargs,

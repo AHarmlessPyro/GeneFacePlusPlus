@@ -1,0 +1,65 @@
+# ARG CUDA_VERSION="11.8.0"
+# ARG CUDNN_VERSION="8"
+# ARG UBUNTU_VERSION="22.04"
+
+# # Base NVidia CUDA Ubuntu image
+# FROM nvidia/cuda:$CUDA_VERSION-cudnn$CUDNN_VERSION-devel-ubuntu$UBUNTU_VERSION AS base
+
+# RUN apt-get clean && apt-get update && \
+#     apt-get install locales curl git nano libhdf5-dev unzip ffmpeg python3-pyaudio rsync wget libasound-dev portaudio19-dev libportaudio2 libportaudiocpp0 -y && \
+#     locale-gen en_US.UTF-8
+
+# RUN curl pyenv.run | bash
+
+# RUN echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.profile
+# RUN echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.profile
+# # RUN echo 'eval "\$(pyenv init -)"' >> ~/.profile
+
+# SHELL ["/bin/bash", "--login", "-c",]
+
+# RUN echo $PATH
+
+FROM geneface:base
+
+ARG CONDA_VERSION="miniconda3-3.10-23.11.0-2"
+
+ENV HOME=/root
+# ENV PYENV_ROOT="/root/.pyenv"
+# ENV PATH="$PYENV_ROOT/bin:$PATH"
+# RUN eval "$(pyenv)"
+
+RUN echo 'echo "profile"' >> ~/.profile
+RUN echo 'export HOME=/root' >> ~/.profile
+RUN echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.profile
+RUN echo "export PATH='${PYENV_ROOT}/bin:$PATH'" >> ~/.profile
+RUN echo 'eval "$(pyenv init -)"' >> ~/.profile
+
+RUN pyenv install ${CONDA_VERSION}
+RUN pyenv global ${CONDA_VERSION}
+RUN conda init
+
+
+RUN git clone https://github.com/AHarmlessPyro/GeneFacePlusPlus
+RUN cd GeneFacePlusPlus
+RUN conda create -n geneface python==3.10.13 -y
+
+ENV PATH "/root/.pyenv/versions/miniconda3-3.10-23.11.0-2/bin/:$PATH"
+
+SHELL ["conda", "run", "-n", "geneface", "/bin/bash", "--login", "-c"]
+
+# RUN conda activate geneface
+# RUN conda install python==3.10.13 -y
+RUN conda install conda-forge::ffmpeg -y
+# RUN conda install pytorch==2.1.0 torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia -y
+# RUN conda install pytorch3d::pytorch3d -y
+# RUN pip install cython openmim==0.3.9 gdown
+# RUN mim install mmcv==2.1.0
+
+# RUN wget http://es.archive.ubuntu.com/ubuntu/pool/main/libf/libffi/libffi7_3.3-4_amd64.deb
+# RUN dpkg -i libffi7_3.3-4_amd64.deb
+
+# RUN pip install -r docs/prepare_env/requirements.txt -v
+# RUN bash docs/prepare_env/install_ext.sh 
+
+# RUN gdown --folder https://drive.google.com/drive/folders/1o4t5YIw7w4cMUN4bgU9nPf6IyWVG1bEk -O ./deep_3drecon/
+# RUN gdown --folder https://drive.google.com/drive/folders/1FqvNbQgOSkvVO8i-vCDJmKM4ppPZjUpL -O checkpoints/

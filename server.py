@@ -104,6 +104,8 @@ TrainSchema = Schema.from_dict(
 def run_training(name: str, train_torso: bool = True, **params):
     from tasks.run import run_task
 
+    raise Exception("frick")
+
     base_env = os.environ.copy()
     base_env["VIDEO_ID"] = name
 

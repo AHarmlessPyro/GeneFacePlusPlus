@@ -9,6 +9,7 @@ import tarfile
 import time
 import typing
 from pathlib import Path
+import traceback
 
 import boto3
 import runpod
@@ -140,14 +141,20 @@ def start_training(request_data: typing.Dict):
     train_torso = result["useTorso"]
     video_file_name = f"data/raw/videos/{name}.mp4"
 
+    print("Unpacked request params")
+
     os.makedirs(f"./checkpoints/motion2video_nerf/{name}_head", exist_ok=True)
     if train_torso:
         os.makedirs(f"./checkpoints/motion2video_nerf/{name}_torso", exist_ok=True)
 
     cp_configs(name, train_params, train_params)
 
+    print("Copied config")
+
     with open(video_file_name, "wb") as f:
         s3.download_fileobj(S3_BUCKET, video_path, f)
+
+    print("Downloaded resources")
 
     proc = multiprocessing.Process(
         target=run_training, args=[name, train_torso], kwargs=train_params
@@ -156,6 +163,7 @@ def start_training(request_data: typing.Dict):
     proc.join()
 
     print(proc)
+    print("Completed subprocess")
 
     archive_name = f"{name}.tar"
     base_path = BASE_DIR
@@ -170,6 +178,8 @@ def start_training(request_data: typing.Dict):
         tar_archive.add(f"./checkpoints/motion2video_nerf/{name}_torso")
     tar_archive.close()
     s3.upload_file(tar_location, S3_BUCKET, upload_loc)
+
+    print("Uploaded tar")
     return (
         {
             "refresh_worker": False,
@@ -276,8 +286,6 @@ def start_inference(request_data: typing.Dict):
     proc.start()
     proc.join()
 
-    # {"url": upload_loc, "completed_at": time.time()}
-
     return {
         "refresh_worker": True,
         "job_results": compile_response(result, "infer", upload_loc),
@@ -285,20 +293,23 @@ def start_inference(request_data: typing.Dict):
 
 
 def process(job):
-    print("Got incoming request in handler")
-    input = job.get("input", {})
-    task_type = input.get("task_type", None)
-    if task_type is None:
-        raise Exception("No task type found")
-    elif task_type == "train":
-        print("Got request of type training")
-        return start_training(input)
-    elif task_type == "infer":
-        print("Got request of type inference")
-        return start_inference(input)
-    else:
-        Exception(f"No task of type {task_type} found")
-
+    try:
+        print("Got incoming request in handler")
+        input = job.get("input", {})
+        task_type = input.get("task_type", None)
+        if task_type is None:
+            raise Exception("No task type found")
+        elif task_type == "train":
+            print("Got request of type training")
+            return start_training(input)
+        elif task_type == "infer":
+            print("Got request of type inference")
+            return start_inference(input)
+        else:
+            Exception(f"No task of type {task_type} found")
+    except:
+        traceback.print_exc()
+        raise 
 
 if __name__ == "__main__":
     runpod.serverless.start({"handler": process})

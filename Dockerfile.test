@@ -38,7 +38,7 @@ RUN git clone --depth 1 -b $BRANCH https://github.com/$USER/$REPO.git
 
 WORKDIR /GeneFacePlusPlus
 
-RUN conda create --file env.yaml -y
+RUN conda create -n geneface --file env.yaml -y
 
 SHELL ["conda", "run", "-n", "geneface", "/bin/bash", "-c"]
 

@@ -5,9 +5,9 @@ ARG UBUNTU_VERSION="22.04"
 # # Base NVidia CUDA Ubuntu image
 FROM nvidia/cuda:$CUDA_VERSION-cudnn$CUDNN_VERSION-devel-ubuntu$UBUNTU_VERSION AS base
 
-ARG BRANCH main
-ARG USER AHarmlessPyro
-ARG REPO GeneFacePlusPlus
+ARG BRANCH="main"
+ARG USER="AHarmlessPyro"
+ARG REPO="GeneFacePlusPlus"
 
 RUN apt-get clean && apt-get update && \
     apt-get install locales curl git nano libhdf5-dev unzip ffmpeg python3-pyaudio rsync wget libasound-dev portaudio19-dev libportaudio2 libportaudiocpp0 -y && \
@@ -48,7 +48,7 @@ RUN wget http://es.archive.ubuntu.com/ubuntu/pool/main/libf/libffi/libffi7_3.3-4
 RUN dpkg -i libffi7_3.3-4_amd64.deb
 
 # Hack to rebuild on branch update
-ADD https://api.github.com/repos/$USER/$REPO/git/refs/heads/$BRANCH version.json
+ADD https://api.github.com/repos/${USER}/${REPO}/git/refs/heads/$BRANCH version.json
 RUN git clone --depth 1 -b $BRANCH https://github.com/$USER/$REPO.git
 
 WORKDIR /GeneFacePlusPlus

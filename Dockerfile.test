@@ -29,14 +29,12 @@ RUN pyenv install ${CONDA_VERSION}
 RUN pyenv global ${CONDA_VERSION}
 RUN conda init bash
 
-
-RUN git clone https://github.com/AHarmlessPyro/GeneFacePlusPlus --depth 1 -b $BRANCH
-RUN cd GeneFacePlusPlus
-RUN conda create -n geneface python==3.10.13 -y
-
 ENV PATH "/root/.pyenv/versions/miniconda3-3.10-23.11.0-2/bin/:$PATH"
 
-RUN conda init
+RUN git clone https://github.com/AHarmlessPyro/GeneFacePlusPlus --depth 1 -b $BRANCH
+WORKDIR /GeneFacePlusPlus
+
+RUN conda create -n geneface python==3.10.13 -y
 
 SHELL ["conda", "run", "-n", "geneface", "/bin/bash", "-c"]
 
@@ -49,8 +47,6 @@ RUN mim install mmcv==2.1.0
 
 RUN wget http://es.archive.ubuntu.com/ubuntu/pool/main/libf/libffi/libffi7_3.3-4_amd64.deb
 RUN dpkg -i libffi7_3.3-4_amd64.deb
-
-WORKDIR /root/GeneFacePlusPlus
 
 RUN pip install -r docs/prepare_env/requirements.txt -v
 RUN bash docs/prepare_env/install_ext.sh

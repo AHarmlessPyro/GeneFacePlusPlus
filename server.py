@@ -285,13 +285,16 @@ def start_inference(request_data: typing.Dict):
 
 
 def process(job):
+    print("Got incoming request in handler")
     input = job.get("input", {})
     task_type = input.get("task_type", None)
     if task_type is None:
         raise Exception("No task type found")
     elif task_type == "train":
+        print("Got request of type training")
         return start_training(input)
     elif task_type == "infer":
+        print("Got request of type inference")
         return start_inference(input)
     else:
         Exception(f"No task of type {task_type} found")

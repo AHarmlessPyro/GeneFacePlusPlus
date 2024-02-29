@@ -33,6 +33,11 @@ RUN conda init bash
 
 ENV PATH "/root/.pyenv/versions/miniconda3-3.10-23.11.0-2/bin/:$PATH"
 
+ADD https://api.github.com/repos/${USER}/${REPO}/git/refs/heads/$BRANCH version.json
+RUN git clone --depth 1 -b $BRANCH https://github.com/$USER/$REPO.git
+
+WORKDIR /GeneFacePlusPlus
+
 RUN conda create -n geneface --file env.yaml -y
 
 SHELL ["conda", "run", "-n", "geneface", "/bin/bash", "-c"]
@@ -43,10 +48,7 @@ RUN wget http://es.archive.ubuntu.com/ubuntu/pool/main/libf/libffi/libffi7_3.3-4
 RUN dpkg -i libffi7_3.3-4_amd64.deb
 
 # Hack to rebuild on branch update
-ADD https://api.github.com/repos/${USER}/${REPO}/git/refs/heads/$BRANCH version.json
-RUN git clone --depth 1 -b $BRANCH https://github.com/$USER/$REPO.git
 
-WORKDIR /GeneFacePlusPlus
 
 RUN pip install -r docs/prepare_env/requirements.txt -v
 RUN bash docs/prepare_env/install_ext.sh

@@ -30,18 +30,77 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.makedirs("data/raw/videos", exist_ok=True)
 
 
+def cp_configs(name: str, head_kwargs: typing.Dict, torso_kwargs: typing.Dict):
+    def get_new_path(file_path):
+        *base_path, file = file_path.split(os.path.sep)
+        new_base_path = os.path.join(*base_path).replace("May", name)
+        return new_base_path, os.path.join(new_base_path, file)
+
+    def update_yml(file: str, kwargs: typing.Dict):
+        _, new_file_name = get_new_path(file)
+        with open(file) as f_read:
+            with open(new_file_name, "w+") as f_write:
+                text = f_read.read()
+                new_text = text.replace("May", name)
+                yml_text = yaml.load(new_text, Loader=yaml.Loader)
+                yml_text.update(**kwargs)
+                stringified = yaml.dump(yml_text, Dumper=yaml.Dumper)
+                f_write.write(stringified)
+
+    def copy_yml(file: str):
+        new_base_path, new_file_name = get_new_path(file)
+        os.makedirs(new_base_path, exist_ok=True)
+        with open(file) as f_read:
+            with open(new_file_name, "w+") as f_write:
+                text = f_read.read()
+                f_write.write(text.replace("May", name))
+
+    def copy_head(head_kwargs: typing.Dict):
+        copy_yml("./egs/datasets/May/lm3d_radnerf.yaml")
+        update_yml("./egs/datasets/May/lm3d_radnerf_sr.yaml", head_kwargs)
+
+    def copy_torso(torso_kwargs: typing.Dict):
+        copy_yml("./egs/datasets/May/lm3d_radnerf_torso.yaml")
+        update_yml(
+            "./egs/datasets/May/lm3d_radnerf_torso_sr.yaml",
+            torso_kwargs,
+        )
+
+    copy_head(head_kwargs)
+    copy_torso(torso_kwargs)
+
+
+def compile_response(
+    input: typing.Dict,
+    task_type: typing.Literal["train"] | typing.Literal["infer"],
+    artifact_upload_path: str,
+    **kwargs,
+):
+    return {
+        "type": task_type,
+        "taskId": input["id"],
+        "orgId": input["org_id"],
+        "completedAt": int(time.time()),
+        "artifactUploadPath": artifact_upload_path,
+        "data": kwargs,
+        "secretValue": input["secretValue"],
+    }
+
+
 TrainSchema = Schema.from_dict(
     {
         "id": fields.UUID(required=True),
+        "orgId": fields.UUID(required=True),
+        "secretValue": fields.String(required=True),
         "name": fields.String(required=True),
-        "video_path": fields.Str(required=True),
-        "use_torso": fields.Boolean(load_default=False),
-        "train_params": fields.Dict(keys=fields.Str(), values=fields.Raw()),
+        "videoPath": fields.Str(required=True),
+        "useTorso": fields.Boolean(load_default=False),
+        "trainParams": fields.Dict(keys=fields.Str(), values=fields.Raw()),
     }
 )
 
 
-def run_training(name: str, train_torso: bool = False, **params):
+def run_training(name: str, train_torso: bool = True, **params):
     from tasks.run import run_task
 
     base_env = os.environ.copy()
@@ -76,9 +135,9 @@ def start_training(request_data: typing.Dict):
 
     name = result["name"]
     instance_uuid = result["id"]
-    video_path = result["video_path"]
-    train_params = result["train_params"]
-    train_torso = result["use_torso"]
+    video_path = result["videoPath"]
+    train_params = result["trainParams"]
+    train_torso = result["useTorso"]
     video_file_name = f"data/raw/videos/{name}.mp4"
 
     os.makedirs(f"./checkpoints/motion2video_nerf/{name}_head", exist_ok=True)
@@ -111,20 +170,24 @@ def start_training(request_data: typing.Dict):
         tar_archive.add(f"./checkpoints/motion2video_nerf/{name}_torso")
     tar_archive.close()
     s3.upload_file(tar_location, S3_BUCKET, upload_loc)
-    return {
-        "refresh_worker": False,
-        "job_results": {"url": upload_loc, "completed_at": time.time()},
-    }
+    return (
+        {
+            "refresh_worker": False,
+            "job_results": compile_response(result, "train", upload_loc),
+        },
+    )
 
 
 InferSchema = Schema.from_dict(
     {
         "id": fields.UUID(required=True),
+        "orgId": fields.UUID(required=True),
+        "secretValue": fields.String(required=True),
         "name": fields.String(required=True),
-        "audio_path": fields.Str(required=True),
-        "data_path": fields.Str(required=True),
-        "use_torso": fields.Boolean(load_default=False),
-        "train_params": fields.Dict(
+        "audioPath": fields.Str(required=True),
+        "dataPath": fields.Str(required=True),
+        "useTorso": fields.Boolean(load_default=True),
+        "trainParams": fields.Dict(
             keys=fields.Str(), values=fields.Raw(), load_default={}
         ),
     }
@@ -146,10 +209,10 @@ def start_inference(request_data: typing.Dict):
 
     instance_uuid = result["id"]
     name = result["name"]
-    audio_loc = result["audio_path"]
-    data_loc = result["data_path"]
-    use_torso = result["use_torso"]
-    train_params: typing.Dict = result["train_params"]
+    audio_loc = result["audioPath"]
+    data_loc = result["dataPath"]
+    use_torso = result["useTorso"]
+    train_params: typing.Dict = result["trainParams"]
 
     dir_base = f"./data/{instance_uuid}"
     inference_base = f"{dir_base}/inference"
@@ -213,9 +276,11 @@ def start_inference(request_data: typing.Dict):
     proc.start()
     proc.join()
 
+    # {"url": upload_loc, "completed_at": time.time()}
+
     return {
         "refresh_worker": True,
-        "job_results": {"url": upload_loc, "completed_at": time.time()},
+        "job_results": compile_response(result, "infer", upload_loc),
     }
 
 
@@ -230,46 +295,6 @@ def process(job):
         return start_inference(input)
     else:
         Exception(f"No task of type {task_type} found")
-
-
-def cp_configs(name: str, head_kwargs: typing.Dict, torso_kwargs: typing.Dict):
-    def get_new_path(file_path):
-        *base_path, file = file_path.split(os.path.sep)
-        new_base_path = os.path.join(*base_path).replace("May", name)
-        return new_base_path, os.path.join(new_base_path, file)
-
-    def update_yml(file: str, kwargs: typing.Dict):
-        _, new_file_name = get_new_path(file)
-        with open(file) as f_read:
-            with open(new_file_name, "w+") as f_write:
-                text = f_read.read()
-                new_text = text.replace("May", name)
-                yml_text = yaml.load(new_text, Loader=yaml.Loader)
-                yml_text.update(**kwargs)
-                stringified = yaml.dump(yml_text, Dumper=yaml.Dumper)
-                f_write.write(stringified)
-
-    def copy_yml(file: str):
-        new_base_path, new_file_name = get_new_path(file)
-        os.makedirs(new_base_path, exist_ok=True)
-        with open(file) as f_read:
-            with open(new_file_name, "w+") as f_write:
-                text = f_read.read()
-                f_write.write(text.replace("May", name))
-
-    def copy_head(head_kwargs: typing.Dict):
-        copy_yml("./egs/datasets/May/lm3d_radnerf.yaml")
-        update_yml("./egs/datasets/May/lm3d_radnerf_sr.yaml", head_kwargs)
-
-    def copy_torso(torso_kwargs: typing.Dict):
-        copy_yml("./egs/datasets/May/lm3d_radnerf_torso.yaml")
-        update_yml(
-            "./egs/datasets/May/lm3d_radnerf_torso_sr.yaml",
-            torso_kwargs,
-        )
-
-    copy_head(head_kwargs)
-    copy_torso(torso_kwargs)
 
 
 if __name__ == "__main__":

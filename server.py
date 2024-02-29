@@ -90,12 +90,13 @@ def start_training(request_data: typing.Dict):
     with open(video_file_name, "wb") as f:
         s3.download_fileobj(S3_BUCKET, video_path, f)
 
-    if not DEBUG:
-        proc = multiprocessing.Process(
-            target=run_training, args=[name, train_torso], kwargs=train_params
-        )
-        proc.start()
-        proc.join()
+    proc = multiprocessing.Process(
+        target=run_training, args=[name, train_torso], kwargs=train_params
+    )
+    proc.start()
+    proc.join()
+
+    print(proc)
 
     archive_name = f"{name}.tar"
     base_path = BASE_DIR

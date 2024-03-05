@@ -10,6 +10,9 @@ This is the official implementation of GeneFace++ [Paper](https://arxiv.org/abs/
     <br>
 </p>
 
+# Note
+The eye blink control is an experimental feature, and we are currently working on improving its robustness. Thanks for your patience.
+
 ## You may also interested in 
 - We release Real3D-portrait (ICLR 2024 Spotlight), ([https://github.com/yerfor/Real3DPortrait](https://github.com/yerfor/Real3DPortrait)), a NeRF-based one-shot talking face system. Only upload one image and enjoy realistic talking face!
 
@@ -47,6 +50,7 @@ Or you can play with our Gradio WebUI:
 export PYTHONPATH=./
 python inference/app_genefacepp.py --a2m_ckpt=checkpoints/audio2motion_vae --head_ckpt= --torso_ckpt=checkpoints/motion2video_nerf/may_torso
 ```
+Or use our provided [Google Colab](https://colab.research.google.com/github/yerfor/GeneFacePlusPlus/blob/main/inference/genefacepp_demo.ipynb) and run all cells in it.
 
 ## Train GeneFace++ with your own videos
 Please refer to details in  `docs/process_data` and `docs/train_and_infer`.
@@ -62,6 +66,7 @@ Below are answers to frequently asked questions when training GeneFace++ on cust
 - [x] **Release Pre-trained weights of Audio2Motion and Motion2Video.**
 - [x] **Release Training Code of Motino2Video Renderer.**
 - [x] **Release Gradio Demo.**
+- [x] **Release Google Colab.**
 - [ ] **Release Training Code of Audio2Motion and Post-Net. (Maybe 2024.06.01) **
 
 ## Citation

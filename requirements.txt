@@ -28,7 +28,7 @@ configargparse==1.7
 contourpy==1.2.0
 cryptography==42.0.5
 cycler==0.12.1
-cython==3.0.8
+cython==0.29.37
 dearpygui==1.11.0
 debugpy==1.8.1
 decorator==4.4.2

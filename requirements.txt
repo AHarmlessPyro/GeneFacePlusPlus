@@ -28,7 +28,7 @@ configargparse==1.7
 contourpy==1.2.0
 cryptography==42.0.5
 cycler==0.12.1
-cython==0.29.37
+cython==3.0.9
 dearpygui==1.11.0
 debugpy==1.8.1
 decorator==4.4.2
@@ -149,7 +149,7 @@ python-multipart==0.0.9
 python-speech-features==0.6
 pytorch-lightning==2.2.0.post0
 pytz==2024.1
-pyworld==0.2.1rc0
+pyworld==0.3.4
 pyzmq==25.1.2
 referencing==0.33.0
 regex==2023.12.25

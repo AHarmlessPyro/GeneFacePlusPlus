@@ -45,20 +45,20 @@ RUN conda create -n geneface -y
 SHELL ["conda", "run", "-n", "geneface", "/bin/bash", "-c"]
 
 RUN conda env update --file env.yaml -n geneface
-RUN pip install -r requirements.txt --no-build-isolation
+RUN pip install -r requirements.txt --no-dependencies
 
-# RUN mim install mmcv==2.1.0
+RUN mim install mmcv==2.1.0
 
-# RUN wget http://es.archive.ubuntu.com/ubuntu/pool/main/libf/libffi/libffi7_3.3-4_amd64.deb
-# RUN dpkg -i libffi7_3.3-4_amd64.deb
+RUN wget http://es.archive.ubuntu.com/ubuntu/pool/main/libf/libffi/libffi7_3.3-4_amd64.deb
+RUN dpkg -i libffi7_3.3-4_amd64.deb
 
-# # Hack to rebuild on branch update
+# Hack to rebuild on branch update
 
 
-# RUN pip install -r docs/prepare_env/requirements.txt -v
-# RUN bash docs/prepare_env/install_ext.sh
+RUN pip install -r docs/prepare_env/requirements.txt -v
+RUN bash docs/prepare_env/install_ext.sh
 
-# RUN pip install -r server_requirements.txt
+RUN pip install -r server_requirements.txt
 
-# RUN gdown --folder https://drive.google.com/drive/folders/1o4t5YIw7w4cMUN4bgU9nPf6IyWVG1bEk -O ./deep_3drecon/
-# RUN gdown --folder https://drive.google.com/drive/folders/1FqvNbQgOSkvVO8i-vCDJmKM4ppPZjUpL -O ./checkpoints/
+RUN gdown --folder https://drive.google.com/drive/folders/1o4t5YIw7w4cMUN4bgU9nPf6IyWVG1bEk -O ./deep_3drecon/
+RUN gdown --folder https://drive.google.com/drive/folders/1FqvNbQgOSkvVO8i-vCDJmKM4ppPZjUpL -O ./checkpoints/

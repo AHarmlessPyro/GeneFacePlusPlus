@@ -104,7 +104,7 @@ TrainSchema = Schema.from_dict(
 def run_training(name: str, train_torso: bool = True, **params):
     from tasks.run import run_task
 
-    raise Exception("frick")
+    # raise Exception("frick")
 
     base_env = os.environ.copy()
     base_env["VIDEO_ID"] = name
@@ -314,4 +314,5 @@ def process(job):
         raise 
 
 if __name__ == "__main__":
+    print(os.environ)
     runpod.serverless.start({"handler": process})
